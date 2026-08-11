@@ -197,8 +197,8 @@ class PSO(BaseOptimizer):
         super().__init__(
             specification, sequences, parameters,
             build_fn=build_fn, eval_fn=eval_fn, **kwargs)
-        self.max_speed = 0.75
-        self.neighbours = None
+        self.max_speed = max_speed
+        self.neighbours = neighbours
         creator.create("Particle", list, fitness=creator.FitnessMin,
                        speed=list, smin=None, smax=None, best=None)
         self.toolbox.register("particle", self._generate)
