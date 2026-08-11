@@ -16,6 +16,7 @@ import os
 import subprocess
 import tempfile
 import re
+import warnings
 
 import ampal
 
@@ -167,6 +168,10 @@ def pack_side_chains_scwrl(assembly, sequences,
         raise ValueError('Number of sequences ({}) does not match '
                          'number of Polypeptides ({}).'.format(
                              len(sequences), len(protein)))
+    if any(char.islower() for seq in sequences for char in seq):
+        warnings.warn("Lowercase characters detected in sequence. SCWRL4 does not "
+                      "support D-amino acids. Consider using pack_side_chains_daspr.",
+                      UserWarning)
     scwrl_std_out, scwrl_pdb = run_scwrl(
         assembly.pdb, ''.join(sequences), path=False,
         rigid_rotamer_model=rigid_rotamer_model, hydrogens=hydrogens)

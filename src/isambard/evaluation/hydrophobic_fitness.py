@@ -69,11 +69,12 @@ def calculate_hydrophobic_fitness(assembly):
                     if isinstance(r, ampal.Residue)]:
         centroid_list = None
         centroid = residue.centroid
-        if residue.mol_letter in HYDROPHOBIC:
+        mol_letter_upper = residue.mol_letter.upper()
+        if mol_letter_upper in HYDROPHOBIC:
             centroid_list = hydrophobic_centroids
-        elif residue.mol_letter == 'Y':
+        elif mol_letter_upper == 'Y':
             centroid_list = tyrosine_centroids
-        elif residue.mol_letter in standard_amino_acids:
+        elif mol_letter_upper in standard_amino_acids:
             centroid_list = polar_centroids
         else:
             continue
