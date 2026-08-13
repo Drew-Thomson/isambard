@@ -5,20 +5,14 @@ The dASPR executable must be on your path.
 
 import os
 import subprocess
+import shutil
 import tempfile
 import ampal
 
 
 def daspr_available():
     """True if dASPR is available."""
-    available = False
-    try:
-        subprocess.check_output(['dASPR'], stderr=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        available = True
-    except FileNotFoundError:
-        print("dASPR has not been found on your path.")
-    return available
+    return shutil.which('dASPR') is not None
 
 
 def run_daspr(pdb, sequence):
