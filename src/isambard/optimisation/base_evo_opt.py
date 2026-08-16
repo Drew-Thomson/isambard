@@ -10,13 +10,13 @@ import matplotlib.pylab as plt
 import numpy
 from deap import base, creator, tools
 
-from ..modelling import pack_side_chains_scwrl
+from ..modelling import pack_side_chains
 
 
 def default_build(spec_seq_params):
     specification, sequences, params = spec_seq_params
     model = specification(*params)
-    model = pack_side_chains_scwrl(model, sequences)
+    model = pack_side_chains(model, sequences, method='daspr')
     return model
 
 
