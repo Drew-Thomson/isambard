@@ -47,6 +47,9 @@ setup(
         "deap",
         "matplotlib",
         "numpy",
+        "pathos",
+        "openmm",
+        "pdbfixer",
     ],
     zip_safe=False,
 )

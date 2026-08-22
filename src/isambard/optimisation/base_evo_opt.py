@@ -1,6 +1,7 @@
 """Base class for bio-inspired optimizers."""
 
-from concurrent import futures
+import multiprocessing
+from pathos.multiprocessing import ProcessPool
 import datetime
 import enum
 import os
@@ -210,10 +211,14 @@ class BaseOptimizer:
             models = map(self.build_fn, px_parameters)
             fitnesses = map(self.eval_fn, models)
         else:
-            with futures.ProcessPoolExecutor(
-                    max_workers=self._cores) as executor:
-                models = executor.map(self.build_fn, px_parameters)
-                fitnesses = executor.map(self.eval_fn, models)
+            pool = multiprocessing.Pool(processes=self._cores, maxtasksperchild=1)
+            try:
+                models = pool.map(self.build_fn, px_parameters)
+                fitnesses = pool.map(self.eval_fn, models)
+            finally:
+                pool.close()
+                pool.join()
+                pool.terminate()
         tars_fits = list(zip(targets, fitnesses))
         if self._store_params:
             self.parameter_log.append(
@@ -333,11 +338,16 @@ class BaseOptimizer:
                 [(x, top_result_model, self.specification)
                  for x in gen_tagged])
         else:
-            with futures.ProcessPoolExecutor(max_workers=cores) as executor:
-                energy_rmsd_gen = executor.map(
+            pool = multiprocessing.Pool(processes=cores, maxtasksperchild=1)
+            try:
+                energy_rmsd_gen = pool.map(
                     self.funnel_rebuild,
                     [(x, top_result_model, self.specification)
                      for x in gen_tagged])
+            finally:
+                pool.close()
+                pool.join()
+                pool.terminate()
         return list(energy_rmsd_gen)
 
     @staticmethod
