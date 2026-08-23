@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 import os
 import sys
+from isambard.modelling.daspr import pack_side_chains_daspr
 
 class AmberEnergyEvaluator:
     """Evaluates the potential energy of a model using OpenMM/CUDA."""
@@ -11,8 +12,18 @@ class AmberEnergyEvaluator:
         self.solvent = solvent
 
     def __call__(self, model):
+        # 0. Pack side chains if possible (handles D-amino acids)
+        try:
+            model = pack_side_chains_daspr(model, [model.sequence])
+        except Exception:
+            # Fallback if packing fails or isn't applicable
+            pass
+        
         # Path to the isolated worker script
         worker_script = os.path.join(os.path.dirname(__file__), 'amber_energy_worker.py')
+        
+        # Check if the model is cyclic
+        is_cyclic = model.tags.get('cyclic', False)
         
         # 1. Handle model (extract PDB string)
         pdb_string = model.pdb
@@ -23,8 +34,12 @@ class AmberEnergyEvaluator:
         try:
             # 2. Execute worker script in an isolated subprocess
             # This guarantees 100% resource cleanup and CUDA context isolation.
+            cmd = [sys.executable, worker_script, pdb_path]
+            if is_cyclic:
+                cmd.append('--cyclic')
+                
             result = subprocess.run(
-                [sys.executable, worker_script, pdb_path],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True
