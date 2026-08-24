@@ -1,6 +1,7 @@
 # Assembly Specs
 from .solenoid import HelixPair, Solenoid
 from .coiledcoil import CoiledCoil
+from .cyclic_peptide import CyclicPeptide
 from .nucleic_acid_duplex import DNADuplex
 
 # Polymer Specs
