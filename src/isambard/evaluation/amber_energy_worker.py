@@ -9,7 +9,8 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-from openmm.app import ForceField, Modeller, Simulation, CutoffNonPeriodic, HBonds, PDBFile
+from openmm.app import ForceField, Simulation, CutoffNonPeriodic, HBonds, PDBFile, Modeller
+from pdbfixer import PDBFixer
 import openmm as mm
 from openmm import Platform, LangevinMiddleIntegrator, unit
 from openmm.unit import kelvin, picosecond, picoseconds, kilojoule, mole, nanometer, kilojoules_per_mole
@@ -38,37 +39,44 @@ def normalize_residues(topology):
 
 def run_worker(pdb_path, is_cyclic=False):
     try:
-        # Pre-process: remove TER records in-memory
+        # Pre-process: remove TER records
         with open(pdb_path, 'r') as f:
             lines = [line for line in f if not line.startswith('TER')]
-            
+        
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb') as tmp:
             tmp.writelines(lines)
             tmp.flush()
-            pdb = PDBFile(tmp.name)
-            
-        modeller = Modeller(pdb.topology, pdb.positions)
-        normalize_residues(modeller.topology)
+            fixer = PDBFixer(tmp.name)
+            fixer.findMissingResidues()
+            fixer.findMissingAtoms()
+            fixer.addMissingAtoms()
+            fixer.addMissingHydrogens(7.0)
+
+        topology = fixer.topology
+        positions = fixer.positions
+        normalize_residues(topology)
+        modeller = Modeller(topology, positions)
 
         # Create cyclic bond (N of first residue to C of last)
         if is_cyclic:
             residues = list(modeller.topology.residues())
             n_term_n = [atom for atom in residues[0].atoms() if atom.name == 'N'][0]
             c_term_c = [atom for atom in residues[-1].atoms() if atom.name == 'C'][0]
+            # Remove excess atoms: OXT from last, H2/H3 from first
+            excess_atoms = [atom for atom in residues[0].atoms() if atom.name in ['H2', 'H3']]
+            excess_atoms.extend([atom for atom in residues[-1].atoms() if atom.name == 'OXT'])
+            modeller.delete(excess_atoms)
+            
             modeller.topology.addBond(n_term_n, c_term_c)
 
-            # Remove excess atoms (only H2, H3 from first residue)
-            excess_atoms = [atom for atom in residues[0].atoms() if atom.name in ['H2', 'H3']]
-            modeller.delete(excess_atoms)
-
-        # Setup ForceField and add Hydrogens
+        # Setup ForceField
         forcefield = ForceField('amber14-all.xml', 'implicit/obc1.xml')
-        modeller.addHydrogens(forcefield=forcefield, pH=7.0)
-
+        
         # Create system
         system = forcefield.createSystem(modeller.topology,
                                          nonbondedMethod=CutoffNonPeriodic,
                                          constraints=HBonds)
+
 
         # Apply positional restraints to N, CA, C atoms
         restraint_force = mm.CustomExternalForce("k*((x-x0)^2+(y-y0)^2+(z-z0)^2)")
