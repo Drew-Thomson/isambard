@@ -49,7 +49,7 @@ class AmberEnergyEvaluator:
             
         except subprocess.CalledProcessError as e:
             # Re-raise with descriptive error if the worker script failed
-            raise RuntimeError(f"AmberEnergy evaluation failed:\n{e.stderr}")
+            raise RuntimeError(f"AmberEnergy evaluation failed:\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
             
         finally:
             if os.path.exists(pdb_path):

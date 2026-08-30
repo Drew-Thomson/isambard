@@ -38,6 +38,7 @@ def normalize_residues(topology):
         res.name = normalized_name
 
 def run_worker(pdb_path, is_cyclic=False):
+    print("--- RUNNING WORKER ---")
     try:
         # Pre-process: remove TER records
         with open(pdb_path, 'r') as f:
