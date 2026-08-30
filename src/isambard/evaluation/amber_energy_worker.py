@@ -38,7 +38,6 @@ def normalize_residues(topology):
         res.name = normalized_name
 
 def run_worker(pdb_path, is_cyclic=False):
-    print("--- RUNNING WORKER ---")
     try:
         # Pre-process: remove TER records
         with open(pdb_path, 'r') as f:
@@ -65,7 +64,6 @@ def run_worker(pdb_path, is_cyclic=False):
 
         # Create cyclic bond (N of first residue to C of last)
         if is_cyclic:
-            print("Cyclic processing: Adding bond and deleting terminal atoms")
             residues = list(modeller.topology.residues())
             n_term_n = [atom for atom in residues[0].atoms() if atom.name == 'N'][0]
             c_term_c = [atom for atom in residues[-1].atoms() if atom.name == 'C'][0]
@@ -74,16 +72,7 @@ def run_worker(pdb_path, is_cyclic=False):
             modeller.delete([a for a in [r for r in modeller.topology.residues()][-1].atoms() if a.name == 'OXT'])
             modeller.delete([a for a in [r for r in modeller.topology.residues()][0].atoms() if a.name == 'H2' or a.name == 'H3'])
             
-            # Debug: Check residues and BONDS
-            for res in modeller.topology.residues():
-                print(f"Residue: {res.name}, Atoms: {[a.name for a in res.atoms()]}")
-            
-            print("Topology Bonds:")
-            for bond in modeller.topology.bonds():
-                print(f"  {bond.atom1.name}({bond.atom1.residue.name}) - {bond.atom2.name}({bond.atom2.residue.name})")
-                    
         # Setup ForceField
-        print("Creating ForceField and System...")
         forcefield = ForceField('amber14-all.xml', 'implicit/obc1.xml')
         
         # Create system
