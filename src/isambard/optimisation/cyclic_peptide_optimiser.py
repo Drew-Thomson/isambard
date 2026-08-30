@@ -106,8 +106,7 @@ class CyclicPeptideOptimiser:
                 
                 for pos in alternate_positions:
                     # Create a new assembly from the new backbone structure
-                    print(f"DEBUG: pos type: {type(pos)}")
-                    new_model = ampal.Assembly(list(pos))
+                    new_model = ampal.Assembly([pos])
                     new_model.sequence = self.sequence
                     new_model.tags['cyclic'] = True
                     
