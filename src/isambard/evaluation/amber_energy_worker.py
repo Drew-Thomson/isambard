@@ -74,9 +74,13 @@ def run_worker(pdb_path, is_cyclic=False):
             modeller.delete([a for a in [r for r in modeller.topology.residues()][-1].atoms() if a.name == 'OXT'])
             modeller.delete([a for a in [r for r in modeller.topology.residues()][0].atoms() if a.name == 'H2' or a.name == 'H3'])
             
-            # Debug: Check residues
+            # Debug: Check residues and BONDS
             for res in modeller.topology.residues():
                 print(f"Residue: {res.name}, Atoms: {[a.name for a in res.atoms()]}")
+            
+            print("Topology Bonds:")
+            for bond in modeller.topology.bonds():
+                print(f"  {bond.atom1.name}({bond.atom1.residue.name}) - {bond.atom2.name}({bond.atom2.residue.name})")
                     
         # Setup ForceField
         print("Creating ForceField and System...")
