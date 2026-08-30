@@ -1,6 +1,7 @@
 import copy
 import random
 import numpy
+import ampal
 import matplotlib.pyplot as plt
 from isambard.specifications.cyclic_peptide import CyclicPeptide, calc_rmsd
 from isambard.modelling.daspr import pack_side_chains_daspr
