@@ -61,8 +61,12 @@ class CyclicPeptideOptimiser:
             # Extract phi, psi from tags
             temp_ramas = []
             for res in list(model[0]):
-                phi = res.tags.get('phi', 0.0)
-                psi = res.tags.get('psi', 0.0)
+                phi = res.tags.get('phi')
+                if phi is None:
+                    phi = 0.0
+                psi = res.tags.get('psi')
+                if psi is None:
+                    psi = 0.0
                 temp_ramas.append((phi, psi))
             # Shift to match expected format
             rama = temp_ramas[1:] + [temp_ramas[0]]
