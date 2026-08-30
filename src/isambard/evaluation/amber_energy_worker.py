@@ -46,14 +46,19 @@ def run_worker(pdb_path, is_cyclic=False):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb') as tmp:
             tmp.writelines(lines)
             tmp.flush()
-            fixer = PDBFixer(tmp.name)
-            fixer.findMissingResidues()
-            fixer.findMissingAtoms()
-            fixer.addMissingAtoms()
-            fixer.addMissingHydrogens(7.0)
+            if is_cyclic:
+                pdb = PDBFile(tmp.name)
+                topology = pdb.topology
+                positions = pdb.positions
+            else:
+                fixer = PDBFixer(tmp.name)
+                fixer.findMissingResidues()
+                fixer.findMissingAtoms()
+                fixer.addMissingAtoms()
+                fixer.addMissingHydrogens(7.0)
+                topology = fixer.topology
+                positions = fixer.positions
 
-        topology = fixer.topology
-        positions = fixer.positions
         normalize_residues(topology)
         modeller = Modeller(topology, positions)
 
@@ -62,12 +67,12 @@ def run_worker(pdb_path, is_cyclic=False):
             residues = list(modeller.topology.residues())
             n_term_n = [atom for atom in residues[0].atoms() if atom.name == 'N'][0]
             c_term_c = [atom for atom in residues[-1].atoms() if atom.name == 'C'][0]
-            # Remove excess atoms: OXT from last, H2/H3 from first
-            excess_atoms = [atom for atom in residues[0].atoms() if atom.name in ['H2', 'H3']]
-            excess_atoms.extend([atom for atom in residues[-1].atoms() if atom.name == 'OXT'])
-            modeller.delete(excess_atoms)
-            
             modeller.topology.addBond(n_term_n, c_term_c)
+            modeller.addHydrogens()    
+            modeller.delete([a for a in [r for r in modeller.topology.residues()][-1].atoms() if a.name == 'OXT'])
+            modeller.delete([a for a in [r for r in modeller.topology.residues()][0].atoms() if a.name == 'H2' or a.name == 'H3'])
+                    
+            
 
         # Setup ForceField
         forcefield = ForceField('amber14-all.xml', 'implicit/obc1.xml')
