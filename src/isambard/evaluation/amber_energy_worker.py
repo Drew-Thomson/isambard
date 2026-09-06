@@ -17,7 +17,7 @@ from openmm.unit import kelvin, picosecond, picoseconds, kilojoule, mole, nanome
 
 def normalize_residues(topology):
     res_map = {
-        'DSG': 'SER', 'DAS': 'ASP', 'DGL': 'GLU', 'DAL': 'ALA', 'DCY': 'CYS',
+        'DSG': 'ASN', 'DAS': 'ASP', 'DGL': 'GLU', 'DAL': 'ALA', 'DCY': 'CYS',
         'DPN': 'PHE', 'DHI': 'HIS', 'DIL': 'ILE', 'DLY': 'LYS', 'DLE': 'LEU',
         'MED': 'MET', 'DPR': 'PRO', 'DGN': 'GLN', 'DAR': 'ARG', 'DSN': 'SER',
         'DTH': 'THR', 'DVA': 'VAL', 'DTR': 'TRP', 'DTY': 'TYR',
@@ -38,10 +38,26 @@ def normalize_residues(topology):
         res.name = normalized_name
 
 def run_worker(pdb_path, is_cyclic=False):
+    res_map = {
+        'DSG': 'ASN', 'DAS': 'ASP', 'DGL': 'GLU', 'DAL': 'ALA', 'DCY': 'CYS',
+        'DPN': 'PHE', 'DHI': 'HIS', 'DIL': 'ILE', 'DLY': 'LYS', 'DLE': 'LEU',
+        'MED': 'MET', 'DPR': 'PRO', 'DGN': 'GLN', 'DAR': 'ARG', 'DSN': 'SER',
+        'DTH': 'THR', 'DVA': 'VAL', 'DTR': 'TRP', 'DTY': 'TYR'
+    }
     try:
-        # Pre-process: remove TER records
+        # Pre-process: remove TER records and normalize D-amino acid names for PDBFixer
+        lines = []
         with open(pdb_path, 'r') as f:
-            lines = [line for line in f if not line.startswith('TER')]
+            for line in f:
+                if line.startswith('TER'):
+                    continue
+                if line.startswith('ATOM') or line.startswith('HETATM'):
+                    res_name = line[17:20].strip()
+                    if res_name in res_map:
+                        # Replace the residue name in place, keeping exact column alignment
+                        new_name = res_map[res_name].ljust(3)
+                        line = line[:17] + new_name + line[20:]
+                lines.append(line)
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb') as tmp:
             tmp.writelines(lines)

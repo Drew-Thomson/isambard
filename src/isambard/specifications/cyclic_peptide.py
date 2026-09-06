@@ -2,6 +2,7 @@ import random
 import copy
 import ampal
 import sys
+import math
 from ampal.geometry import distance
 from .ta_polypeptide import TAPolypeptide
 
@@ -13,27 +14,59 @@ def calc_rmsd(frag1, frag2):
 
 def rand_mac(res, max_iter=20000, max_attempts=5, max_rmsd=0.05):
     """Builds a macrocycle by starting with random phi and psi angles, then mutating them till the ends overlap."""
-    initial_phi_psi = [[180, random.uniform(-180, 180), random.uniform(-180, 180)] for _ in range(res)]
-    best_angles = initial_phi_psi[:]
-    test_model = TAPolypeptide([initial_phi_psi[-1]] + initial_phi_psi + initial_phi_psi[0:2])
-    best_rmsd = calc_rmsd(test_model[1], test_model[-2])
+    
+    def get_best_initial(res_count, samples=100):
+        best_angles = None
+        best_rmsd_val = float('inf')
+        for _ in range(samples):
+            angles = [[180, random.uniform(-180, 180), random.uniform(-180, 180)] for _ in range(res_count)]
+            test_model = TAPolypeptide([angles[-1]] + angles + angles[0:2])
+            rmsd_val = calc_rmsd(test_model[1], test_model[-2])
+            if rmsd_val < best_rmsd_val:
+                best_rmsd_val = rmsd_val
+                best_angles = angles
+        return best_angles, best_rmsd_val
+
+    best_angles, best_rmsd = get_best_initial(res)
     print("Starting rmsd is {0}".format(best_rmsd))
+    
     cached_tries = []
     attempts = 0
     i = 0
+    
     while best_rmsd > max_rmsd and i < max_iter:
         working_angles = copy.deepcopy(best_angles)
-        for j in range(random.randint(2,6)):
-            working_angles[random.choice(range(len(initial_phi_psi)))][random.choice(range(1,3))] += random.gauss(0,0.5*best_rmsd)
+        
+        # Flipped Adaptive mutation strategy: more mutations when closer
+        if best_rmsd < 1.0:
+            num_mutations = random.randint(2, 6)
+        else:
+            num_mutations = random.randint(1, 2)
+            
+        for j in range(num_mutations):
+            working_angles[random.choice(range(len(best_angles)))][random.choice(range(1,3))] += random.gauss(0, 0.5*best_rmsd)
 
-        test_model = TAPolypeptide([working_angles[-1]] + working_angles+working_angles[0:2])
+        test_model = TAPolypeptide([working_angles[-1]] + working_angles + working_angles[0:2])
         new_rmsd = calc_rmsd(test_model[1], test_model[-2])
-        if (new_rmsd < best_rmsd) or (random.random() < 0.005): 
+        
+        # Metropolis criterion for simulated annealing (exponential cooling)
+        temp = max(0.001, 0.1 * (0.9995 ** i))
+        accept = False
+        if new_rmsd < best_rmsd:
+            accept = True
+        else:
+            prob = math.exp(-(new_rmsd - best_rmsd) / temp)
+            if random.random() < prob:
+                accept = True
+                
+        if accept:
             best_angles = copy.deepcopy(working_angles)
             best_rmsd = new_rmsd
+            
         if not(i % 100):
             sys.stdout.write("\rAt iter {0} best rmsd is {1})".format(i, best_rmsd))
             sys.stdout.flush()
+            
         i += 1
         if i == max_iter:
             print('\nManaged only rmsd of {0}: resampling!'.format(best_rmsd))
@@ -42,14 +75,12 @@ def rand_mac(res, max_iter=20000, max_attempts=5, max_rmsd=0.05):
                 cached_tries.sort(key=lambda x: x[1])
                 print("Ran out of attempts, best rmsd was {0}".format(cached_tries[0][1]))
                 return(cached_tries[0][0])
-            for k in range(len(best_angles)):
-                best_angles[k] = [180, random.uniform(-180, 180), random.uniform(-180, 180)]
-            test_model = TAPolypeptide([best_angles[-1]]+best_angles+best_angles[0:2])
-            best_rmsd = calc_rmsd(test_model[1], test_model[-2])
+            
+            best_angles, best_rmsd = get_best_initial(res)
             attempts += 1
             i = 0
 
-    print("After {0} iterations and {1} attempts best rmsd is {2}".format(i, attempts, best_rmsd))
+    print("\nAfter {0} iterations and {1} attempts best rmsd is {2}".format(i, attempts, best_rmsd))
     return(best_angles)
     
 def build_mac(angles):

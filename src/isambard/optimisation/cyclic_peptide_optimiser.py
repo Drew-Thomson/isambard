@@ -3,11 +3,10 @@ import random
 import numpy
 import ampal
 import matplotlib.pyplot as plt
-from isambard.specifications.cyclic_peptide import CyclicPeptide, calc_rmsd
+from isambard.specifications.cyclic_peptide import CyclicPeptide
 from isambard.modelling.daspr import pack_side_chains_daspr
 from isambard.evaluation.amber_energy import AmberEnergyEvaluator
 from isambard.modelling.kinematic_closure import new_input_angles
-from ampal.geometry import dihedral
 
 # Helper for filter_by_rama_rmsd
 def toroidal_dist(point1, point2):
@@ -19,7 +18,7 @@ def toroidal_dist(point1, point2):
 
 def calc_rmsd2(rama1, rama2):
     dist = [toroidal_dist(x, y) for x, y in zip(rama1, rama2)]
-    return numpy.sqrt(sum([x**2 for x in dist])/len(dist))
+    return numpy.sqrt(sum(x**2 for x in dist)/len(dist))
 
 class CyclicPeptideOptimiser:
     """Optimises a cyclic peptide structure."""
@@ -68,20 +67,25 @@ class CyclicPeptideOptimiser:
                 if psi is None:
                     psi = 0.0
                 temp_ramas.append((phi, psi))
-            # Shift to match expected format
+            # Shift to match expected format: aligning phi of residue i with psi of i-1
+            # for cyclic peptides since the topology is circular.
             rama = temp_ramas[1:] + [temp_ramas[0]]
             ramalist.append(rama)
 
-        rmsd_array = numpy.zeros((len(population), len(population)))
-        for j in range(len(population)):
-            for k in range(0, j):
-                rmsd_array[k][j] = calc_rmsd2(ramalist[j], ramalist[k])
-        
         tmp_current = []
-        for j in range(len(population)):
-            line = rmsd_array[:j, j]
-            if all(l > rmsd_val for l in line):
-                tmp_current.append(population[j])
+        accepted_ramas = []
+        
+        for j, (rama, pop_item) in enumerate(zip(ramalist, population)):
+            # Check distance against only the already accepted structures (greedy clustering)
+            is_unique = True
+            for acc_rama in accepted_ramas:
+                if calc_rmsd2(rama, acc_rama) <= rmsd_val:
+                    is_unique = False
+                    break
+            if is_unique:
+                accepted_ramas.append(rama)
+                tmp_current.append(pop_item)
+                
         return tmp_current
 
     def optimise(self, n_iter, samplesize=200, hof_len=5, rama_rmsd=15, plot=True):
@@ -120,7 +124,7 @@ class CyclicPeptideOptimiser:
                         packed.tags['cyclic'] = True
                         energy = self.get_energy(packed)
                         population_results.append((energy, packed))
-                    except:
+                    except Exception:
                         continue
             
             # Merge, Sort, Filter
