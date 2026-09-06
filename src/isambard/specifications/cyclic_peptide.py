@@ -37,11 +37,11 @@ def rand_mac(res, max_iter=20000, max_attempts=5, max_rmsd=0.05):
     while best_rmsd > max_rmsd and i < max_iter:
         working_angles = copy.deepcopy(best_angles)
         
-        # Flipped Adaptive mutation strategy: more mutations when closer
-        if best_rmsd < 1.0:
-            num_mutations = random.randint(2, 6)
+        # Flipped Adaptive mutation strategy: more angles perturbed
+        if best_rmsd < 1.5:
+            num_mutations = random.randint(3, max(6, res))
         else:
-            num_mutations = random.randint(1, 2)
+            num_mutations = random.randint(2, max(4, int(res * 0.75)))
             
         for j in range(num_mutations):
             working_angles[random.choice(range(len(best_angles)))][random.choice(range(1,3))] += random.gauss(0, 0.5*best_rmsd)
