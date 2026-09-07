@@ -1,3 +1,4 @@
+from isambard.modelling.daspr import pack_side_chains_daspr
 import sys
 import copy
 import random
@@ -705,8 +706,10 @@ class CyclicPeptideOptimiser:
         
 
     def build_start_mac(self):
-        # We use CyclicPeptide to generate a starting sequence macrocycle.
-        self.start_mac = CyclicPeptide(self.seq, auto_build=True)
+        # We use CyclicPeptide to generate a starting backbone macrocycle.
+        start_mac = CyclicPeptide(self.seq, auto_build=True)
+        # Pack side chains using dASPR for the initial setup
+        self.start_mac = pack_side_chains_daspr(start_mac, [self.seq])
         self.model = self.start_mac
 
     def amber_setup(self):
@@ -715,13 +718,31 @@ class CyclicPeptideOptimiser:
         self.flip = 0
         self.cis_bad = 0
         
-        pdb_string = self.start_mac.pdb
+        res_map = {
+            'DSG': 'ASN', 'DAS': 'ASP', 'DGL': 'GLU', 'DAL': 'ALA', 'DCY': 'CYS',
+            'DPN': 'PHE', 'DHI': 'HIS', 'DIL': 'ILE', 'DLY': 'LYS', 'DLE': 'LEU',
+            'MED': 'MET', 'DPR': 'PRO', 'DGN': 'GLN', 'DAR': 'ARG', 'DSN': 'SER',
+            'DTH': 'THR', 'DVA': 'VAL', 'DTR': 'TRP', 'DTY': 'TYR'
+        }
+        
+        pdb_lines = []
+        for line in self.start_mac.pdb.splitlines():
+            if line.startswith('TER'):
+                continue
+            if line.startswith('ATOM') or line.startswith('HETATM'):
+                res_name = line[17:20].strip()
+                if res_name in res_map:
+                    new_name = res_map[res_name].ljust(3)
+                    line = line[:17] + new_name + line[20:]
+            pdb_lines.append(line + '\n')
+            
         f = tempfile.NamedTemporaryFile(suffix='.pdb')
-        f.write(pdb_string.encode())
+        f.write(''.join(pdb_lines).encode())
         f.seek(0)
         cyc1 = app.PDBFile(f.name)
         
         self.model = app.Modeller(cyc1.topology, cyc1.positions)
+
         residues = [r for r in self.model.topology.residues()]
         # assumes no OH at end. Would need to target and remove atoms for that if present
         self.model.topology.addBond([at for at in residues[0].atoms() if at.name == 'N'][0],
@@ -735,7 +756,7 @@ class CyclicPeptideOptimiser:
         
         self.system = forcefield.createSystem(self.model.topology,
                                               nonbondedMethod=app.NoCutoff,
-                                              constraints=None)
+                                              constraints=None, ignoreExternalBonds=True)
                                               
         self.force = mm.CustomExternalForce("k*((x-x0)^2+(y-y0)^2+(z-z0)^2)")
         self.force.addGlobalParameter("k", 1.0*unit.kilocalories_per_mole/unit.angstroms**2)
@@ -775,7 +796,7 @@ class CyclicPeptideOptimiser:
         startpos = copy.deepcopy(self.model.positions)
               
         if any(x in 'TtIi' for x in self.seq):
-            pass # startpos = self.sc_chir_check_flip(startpos)  # Disabled since side chains are not packed
+            startpos = self.sc_chir_check_flip(startpos)
             
         for k in range(len(self.seq)):
             chir = self.check_chirality(k, startpos)
@@ -1088,8 +1109,52 @@ class CyclicPeptideOptimiser:
     
     def sc_chir_check_flip(self, positions, flip=True):
         res = [r for r in self.model.topology.residues()]
-        # Disable side chain checking because we are not packing side chains
-        if not flip: return True
+        ind = []
+        for i, r in enumerate(res):
+            if r.name in ['THR', 'ILE']:
+                ind.append(i)
+        
+        wrong_chir = [] # count of number of wrong chirality side chains
+        for i in ind:
+            try:
+                a1 = [a.index for a in res[i].atoms() if a.name == 'HB'][0]
+                a2 = [a.index for a in res[i].atoms() if a.name == 'CA'][0]
+                a3 = [a.index for a in res[i].atoms() if a.name in ('CB', 'HA3')][0]
+                cg_candidates = [a.index for a in res[i].atoms() if a.name in ('CG1', 'CG2')]
+                if not cg_candidates: continue
+                cg_id = cg_candidates[0]
+                
+                a1_v = positions[a1]._value
+                a2_v = positions[a2]._value
+                a3_v = positions[a3]._value
+                cg_v = positions[cg_id]._value
+                dihe = dihedral(a1_v, a2_v, a3_v, cg_v)
+                
+                if res[i].name == 'THR' and dihe > 0:
+                    wrong_chir.append(i)
+                elif res[i].name == 'ILE' and dihe < 0:
+                    wrong_chir.append(i)
+            except IndexError:
+                continue
+                
+        if not flip:
+            return len(wrong_chir) == 0
+            
+        for i in wrong_chir:
+            try:
+                a1 = [a.index for a in res[i].atoms() if a.name == 'HB'][0]
+                cg_candidates = [a.index for a in res[i].atoms() if a.name in ('CG1', 'CG2')]
+                if not cg_candidates: continue
+                cg_id = cg_candidates[0]
+                
+                cg_v = positions[cg_id]._value
+                a1_v = positions[a1]._value
+                
+                positions[cg_id] = vec3.Vec3(*a1_v) * unit.nanometers
+                positions[a1] = vec3.Vec3(*cg_v) * unit.nanometers
+            except IndexError:
+                continue
+            
         return positions
 
     def filter_by_rama_rmsd(self, population, rmsd_val):
@@ -1191,7 +1256,7 @@ class CyclicPeptideOptimiser:
                     
                     flipnow = 0
                     if any(x in 'TtIi' for x in self.seq):
-                        pass # current_positions = self.sc_chir_check_flip(current_positions, flip=True) # Disabled since side chains are not packed
+                        current_positions = self.sc_chir_check_flip(current_positions, flip=True)
                         
                     for k in range(len(self.seq)):
                             #test chirality
