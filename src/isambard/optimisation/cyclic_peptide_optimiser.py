@@ -317,7 +317,7 @@ def find_alternate_positions(mod, positions, index1, index2, index3):
         net_rotations += [taus[j] - ref_taus[j] for j in range(1, 3)]
         net_rotation_list.append([net_rotations[1], net_rotations[2], net_rotations[0]])
         #HOW CAN THIS MESS UP CB AND HB BUT NOT O OR H???
-    print(f"net rot list is {net_rotation_list}")
+    # print(f"net rot list is {net_rotation_list}")
     ax_ind = [(CAatom_ind[1], CAatom_ind[0]), (CAatom_ind[2], CAatom_ind[1]), (CAatom_ind[2], CAatom_ind[0])] 
 
     axes = []
@@ -468,8 +468,8 @@ def find_alternate_positions(mod, positions, index1, index2, index3):
 
         ref1a = ampal.geometry.distance(cb_1_new_v, c_1_new_v)
         ref1b = ampal.geometry.distance(cb_1_new_v, n_1_new_v)
-        print(f"ref1a is {ref1a}")
-        print(f"ref1b is {ref1b}")
+        # print(f"ref1a is {ref1a}")
+        # print(f"ref1b is {ref1b}")
         
         if ref1a > ref1b:
             a1 *= -1
@@ -479,23 +479,23 @@ def find_alternate_positions(mod, positions, index1, index2, index3):
         
         ref2a = ampal.geometry.distance(cb_2_new_v, c_2_new_v)
         ref2b = ampal.geometry.distance(cb_2_new_v, n_2_new_v)        
-        print(f"ref2a is {ref2a}")
-        print(f"ref2b is {ref2b}")
+        # print(f"ref2a is {ref2a}")
+        # print(f"ref2b is {ref2b}")
         
         if ref2a > ref2b:
             a2 *= -1
             
         ref3a = ampal.geometry.distance(cb_3_new_v, c_3_new_v)
         ref3b = ampal.geometry.distance(cb_3_new_v, n_3_new_v)        
-        print(f"ref3a is {ref3a}")
-        print(f"ref3b is {ref3b}")
+        # print(f"ref3a is {ref3a}")
+        # print(f"ref3b is {ref3b}")
         
         if ref3a > ref3b:
             a3 *= -1   
         
-        print(f"a1 is {a2}")
-        print(f"a2 is {a2}")
-        print(f"a3 is {a3}")
+        # print(f"a1 is {a2}")
+        # print(f"a2 is {a2}")
+        # print(f"a3 is {a3}")
         # a1 and a2 are identical- ??? result of final rotation? OR something buggy/weird is going on in my code
         
         sc1_pos2 = [output_pos[_]._value for _ in sc_1]
@@ -1329,7 +1329,7 @@ class CyclicPeptideOptimiser:
                 # exception catching for openmm issues- not really needed but prevents problems...
                 #... being hidden by try above (try is good but only if except is informative)
                 except BaseException as e:
-                    print(f"openmm not happy: {e}")
+                    # print(f"openmm not happy: {e}")
                     pass
             #combine all models and sort by score
             current_models.sort(key = lambda x: x[0])
