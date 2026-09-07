@@ -36,7 +36,7 @@ class CyclicPeptideOptimiser:
         
     def get_energy(self, model):
         """Calculates energy of the model."""
-        return self.evaluator(model)
+        return self.evaluator(model, pack_side_chains=False)
         
     def build_start_mac(self):
         """Builds a starting cyclic peptide structure."""

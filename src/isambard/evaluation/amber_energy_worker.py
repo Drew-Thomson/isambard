@@ -3,17 +3,20 @@ import os
 import argparse
 import traceback
 import tempfile
+import io
 
 # Set thread limits IMMEDIATELY to prevent oversubscription
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-from openmm.app import ForceField, Simulation, CutoffNonPeriodic, HBonds, PDBFile, Modeller
+from openmm.app import ForceField, Simulation, CutoffNonPeriodic, HBonds, PDBFile, Modeller, Topology, element
 from pdbfixer import PDBFixer
 import openmm as mm
 from openmm import Platform, LangevinMiddleIntegrator, unit
 from openmm.unit import kelvin, picosecond, picoseconds, kilojoule, mole, nanometer, kilojoules_per_mole
+from openmm.vec3 import Vec3
+import numpy as np
 
 def normalize_residues(topology):
     res_map = {
@@ -45,7 +48,7 @@ class SimulationCache:
 
 cache = SimulationCache()
 
-def evaluate_energy(pdb_path, is_cyclic=False):
+def evaluate_energy(pdb_content, is_cyclic=False):
     res_map = {
         'DSG': 'ASN', 'DAS': 'ASP', 'DGL': 'GLU', 'DAL': 'ALA', 'DCY': 'CYS',
         'DPN': 'PHE', 'DHI': 'HIS', 'DIL': 'ILE', 'DLY': 'LYS', 'DLE': 'LEU',
@@ -54,47 +57,136 @@ def evaluate_energy(pdb_path, is_cyclic=False):
     }
     
     lines = []
-    with open(pdb_path, 'r') as f:
-        for line in f:
-            if line.startswith('TER'):
-                continue
-            if line.startswith('ATOM') or line.startswith('HETATM'):
-                res_name = line[17:20].strip()
-                if res_name in res_map:
-                    new_name = res_map[res_name].ljust(3)
-                    line = line[:17] + new_name + line[20:]
-            lines.append(line)
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb', delete=False) as tmp:
-        tmp.writelines(lines)
-        tmp.flush()
-        tmp_name = tmp.name
+    for line in pdb_content.splitlines():
+        if line.startswith('TER'):
+            continue
+        if line.startswith('ATOM') or line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name in res_map:
+                new_name = res_map[res_name].ljust(3)
+                line = line[:17] + new_name + line[20:]
         
+        # Ensure lines have newline characters for stringio
+        if not line.endswith('\n'):
+            line += '\n'
+        lines.append(line)
+    
+    pdb_str = "".join(lines)
+    
     try:
-        if is_cyclic:
-            pdb = PDBFile(tmp_name)
-            topology = pdb.topology
-            positions = pdb.positions
-        else:
-            fixer = PDBFixer(tmp_name)
-            fixer.findMissingResidues()
-            fixer.findMissingAtoms()
-            fixer.addMissingAtoms()
-            fixer.addMissingHydrogens(7.0)
-            topology = fixer.topology
-            positions = fixer.positions
+        pdb = PDBFile(io.StringIO(pdb_str))
+        topology = pdb.topology
+        positions = pdb.positions
 
         normalize_residues(topology)
         modeller = Modeller(topology, positions)
 
+        # Explicitly enforce peptide bonds between adjacent residues in the same chain
+        # to prevent broken chains when coordinates are perturbed beyond PDBFile's distance cutoff
+        existing_bonds = set()
+        for b in modeller.topology.bonds():
+            existing_bonds.add((b[0], b[1]))
+            existing_bonds.add((b[1], b[0]))
+            
+        for chain in modeller.topology.chains():
+            chain_residues = list(chain.residues())
+            for i in range(len(chain_residues) - 1):
+                res1 = chain_residues[i]
+                res2 = chain_residues[i+1]
+                c_atoms = [a for a in res1.atoms() if a.name == 'C']
+                n_atoms = [a for a in res2.atoms() if a.name == 'N']
+                if c_atoms and n_atoms:
+                    c_atom = c_atoms[0]
+                    n_atom = n_atoms[0]
+                    if (c_atom, n_atom) not in existing_bonds:
+                        modeller.topology.addBond(c_atom, n_atom)
+                        existing_bonds.add((c_atom, n_atom))
+                        existing_bonds.add((n_atom, c_atom))
+
         if is_cyclic:
             residues = list(modeller.topology.residues())
-            n_term_n = [atom for atom in residues[0].atoms() if atom.name == 'N'][0]
-            c_term_c = [atom for atom in residues[-1].atoms() if atom.name == 'C'][0]
-            modeller.topology.addBond(n_term_n, c_term_c)
-            modeller.addHydrogens()    
-            modeller.delete([a for a in list(modeller.topology.residues())[-1].atoms() if a.name == 'OXT'])
+            if not residues:
+                raise ValueError("No residues found in topology")
+            
+            if residues:
+                n_term_n_list = [atom for atom in residues[0].atoms() if atom.name == 'N']
+                c_term_c_list = [atom for atom in residues[-1].atoms() if atom.name == 'C']
+                
+                if not n_term_n_list:
+                    raise ValueError(f"No N atom in first residue {residues[0].name}. Atoms: {[a.name for a in residues[0].atoms()]}")
+                if not c_term_c_list:
+                    raise ValueError(f"No C atom in last residue {residues[-1].name}. Atoms: {[a.name for a in residues[-1].atoms()]}")
+                
+                n_term_n = n_term_n_list[0]
+                c_term_c = c_term_c_list[0]
+                modeller.topology.addBond(n_term_n, c_term_c)
+                
+            modeller.delete([a for a in modeller.topology.atoms() if a.name == 'OXT'])
+        else:
+            new_topology = Topology()
+            new_positions = []
+            atom_map = {}
+            oxt_bonds = []
+            
+            for chain in modeller.topology.chains():
+                new_chain = new_topology.addChain(chain.id)
+                chain_residues = list(chain.residues())
+                for res_idx, res in enumerate(chain_residues):
+                    new_res = new_topology.addResidue(res.name, new_chain, res.id, res.insertionCode)
+                    for atom in res.atoms():
+                        new_atom = new_topology.addAtom(atom.name, atom.element, new_res)
+                        atom_map[atom] = new_atom
+                        new_positions.append(modeller.positions[atom.index].value_in_unit(unit.nanometer))
+                    
+                    # Enforce OXT on the C-terminus of EVERY chain for non-cyclic peptides
+                    if res_idx == len(chain_residues) - 1:
+                        has_oxt = any(a.name == 'OXT' for a in res.atoms())
+                        ca_atoms = [a for a in res.atoms() if a.name == 'CA']
+                        c_atoms = [a for a in res.atoms() if a.name == 'C']
+                        o_atoms = [a for a in res.atoms() if a.name == 'O']
+                        
+                        if not has_oxt and ca_atoms and c_atoms and o_atoms:
+                            ca_atom = ca_atoms[0]
+                            c_atom = c_atoms[0]
+                            o_atom = o_atoms[0]
+                            
+                            ca_pos = modeller.positions[ca_atom.index].value_in_unit(unit.nanometer)
+                            c_pos = modeller.positions[c_atom.index].value_in_unit(unit.nanometer)
+                            o_pos = modeller.positions[o_atom.index].value_in_unit(unit.nanometer)
+                            
+                            ca_arr = np.array([ca_pos.x, ca_pos.y, ca_pos.z])
+                            c_arr = np.array([c_pos.x, c_pos.y, c_pos.z])
+                            o_arr = np.array([o_pos.x, o_pos.y, o_pos.z])
+                            
+                            v = o_arr - ca_arr
+                            v1 = c_arr - ca_arr
+                            n = np.cross(v1, v)
+                            p = np.cross(v, n)
+                            
+                            p_norm = p / np.linalg.norm(p)
+                            oxt_arr = c_arr + p_norm * 0.13
+                            
+                            oxt_pos = Vec3(oxt_arr[0], oxt_arr[1], oxt_arr[2])
+                            new_oxt = new_topology.addAtom('OXT', element.oxygen, new_res)
+                            new_positions.append(oxt_pos)
+                            oxt_bonds.append((atom_map[c_atom], new_oxt))
+
+            for bond in modeller.topology.bonds():
+                new_topology.addBond(atom_map[bond[0]], atom_map[bond[1]])
+                
+            for b0, b1 in oxt_bonds:
+                new_topology.addBond(b0, b1)
+                
+            new_topology.setPeriodicBoxVectors(modeller.topology.getPeriodicBoxVectors())
+            modeller = Modeller(new_topology, new_positions * unit.nanometer)
+
+        forcefield = ForceField('amber14-all.xml', 'implicit/obc1.xml')
+        
+        if is_cyclic:
+            modeller.addHydrogens(forcefield=None)
             modeller.delete([a for a in list(modeller.topology.residues())[0].atoms() if a.name == 'H2' or a.name == 'H3'])
+        else:
+            modeller.addHydrogens(forcefield=forcefield)
             
         # Rebuild cache if atom counts mismatch
         if cache.simulation is not None:
@@ -102,7 +194,6 @@ def evaluate_energy(pdb_path, is_cyclic=False):
                 cache.simulation = None
                 
         if cache.simulation is None:
-            forcefield = ForceField('amber14-all.xml', 'implicit/obc1.xml')
             system = forcefield.createSystem(modeller.topology,
                                              nonbondedMethod=CutoffNonPeriodic,
                                              constraints=HBonds)
@@ -123,10 +214,15 @@ def evaluate_energy(pdb_path, is_cyclic=False):
             system.addForce(restraint_force)
             cache.restraint_force = restraint_force
 
-            platform = Platform.getPlatformByName('CUDA')
-            properties = {'Precision': 'mixed'}
-            integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
-            cache.simulation = Simulation(modeller.topology, system, integrator, platform, properties)
+            try:
+                platform = Platform.getPlatformByName('CUDA')
+                properties = {'Precision': 'mixed'}
+                integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
+                cache.simulation = Simulation(modeller.topology, system, integrator, platform, properties)
+            except Exception:
+                platform = Platform.getPlatformByName('CPU')
+                integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
+                cache.simulation = Simulation(modeller.topology, system, integrator, platform)
             
         # Update positions and restraints for the current cache
         cache.simulation.context.setPositions(modeller.positions)
@@ -141,9 +237,8 @@ def evaluate_energy(pdb_path, is_cyclic=False):
         energy = state.getPotentialEnergy()
         return energy.value_in_unit(kilojoules_per_mole)
         
-    finally:
-        if os.path.exists(tmp_name):
-            os.remove(tmp_name)
+    except Exception as e:
+        raise e
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] != "--persistent":
@@ -153,7 +248,9 @@ if __name__ == "__main__":
         parser.add_argument("--cyclic", action="store_true")
         args = parser.parse_args()
         try:
-            e = evaluate_energy(args.pdb_path, args.cyclic)
+            with open(args.pdb_path, 'r') as f:
+                pdb_content = f.read()
+            e = evaluate_energy(pdb_content, args.cyclic)
             print(e)
         except Exception as e:
             traceback.print_exc()
@@ -161,7 +258,9 @@ if __name__ == "__main__":
             sys.exit(1)
     else:
         # Persistent server mode
-        for line in sys.stdin:
+        while True:
+            line = sys.stdin.readline()
+            if not line: break
             line = line.strip()
             if not line: continue
             if line == 'EXIT':
@@ -172,7 +271,28 @@ if __name__ == "__main__":
                 pdb_path = parts[1]
                 is_cyclic = parts[2].lower() == 'true'
                 try:
-                    energy = evaluate_energy(pdb_path, is_cyclic)
+                    with open(pdb_path, 'r') as f:
+                        pdb_content = f.read()
+                    energy = evaluate_energy(pdb_content, is_cyclic)
+                    print(f"RESULT {energy}")
+                    sys.stdout.flush()
+                except Exception as e:
+                    traceback.print_exc(file=sys.stderr)
+                    msg = str(e).replace('\n', ' ')
+                    print(f"ERROR {msg}")
+                    sys.stdout.flush()
+            elif parts[0] == 'EVALUATE_STRING':
+                is_cyclic = parts[1].lower() == 'true'
+                pdb_lines = []
+                while True:
+                    pdb_line = sys.stdin.readline()
+                    if not pdb_line: break
+                    if pdb_line.strip() == 'END_PDB':
+                        break
+                    pdb_lines.append(pdb_line)
+                pdb_content = "".join(pdb_lines)
+                try:
+                    energy = evaluate_energy(pdb_content, is_cyclic)
                     print(f"RESULT {energy}")
                     sys.stdout.flush()
                 except Exception as e:
