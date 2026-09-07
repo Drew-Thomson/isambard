@@ -775,7 +775,7 @@ class CyclicPeptideOptimiser:
         startpos = copy.deepcopy(self.model.positions)
               
         if any(x in 'TtIi' for x in self.seq):
-            startpos = self.sc_chir_check_flip(startpos)
+            pass # startpos = self.sc_chir_check_flip(startpos)  # Disabled since side chains are not packed
             
         for k in range(len(self.seq)):
             chir = self.check_chirality(k, startpos)
@@ -1087,106 +1087,11 @@ class CyclicPeptideOptimiser:
         return(outpos)
     
     def sc_chir_check_flip(self, positions, flip=True):
-        outpos = copy.deepcopy(positions)
-        #preceded with if any thing to see if we need to do this
-        # can flip by always swapping methyl and hydrogen
-        # need to get rid of 'if flip'
-        # calculation of mobile vectors should only be done when flip is needed
-        # separate into two functions as above
-        # get indices for all T and I, regardless of D or L
-        ind = [i for i,x in enumerate(self.seq) if x.upper() == 'I' or x.upper() == 'T']
-#         print(f"ind is {ind}")
         res = [r for r in self.model.topology.residues()]
-        wrong_chir = [] # count of number of wrong chirality side chains
-        for i in ind:
-            a1 = [a.index for a in res[i].atoms() if a.name == 'HB'][0]
-            a2 = [a.index for a in res[i].atoms() if a.name == 'CA'][0]
-            a3 = [a.index for a in res[i].atoms() if a.name == 'CB'][0]
-            a4 = [a.index for a in res[i].atoms() if a.name in ('OG1', 'CG1')][0]
-            #list of indices for all the atoms to move
-#             mobile_ind = [a.index for a in res[i].atoms() if a.name in ('CG2', 'HG21', 'HG22', 'HG23')]
-            
-            m1 = [a.index for a in res[i].atoms() if a.name == 'CG2'][0]
-            m2 = [a.index for a in res[i].atoms() if a.name == 'HG21'][0]
-            m3 = [a.index for a in res[i].atoms() if a.name == 'HG22'][0]
-            m4 = [a.index for a in res[i].atoms() if a.name == 'HG23'][0]
-            
-            mobile_ind = [m1, m2, m3, m4]
-            
-            # do these names work for Ile?
-            mobile_vec = [positions[m]._value for m in mobile_ind]
-            
-            hb_v = positions[a1]._value
-            ca_v = positions[a2]._value            
-            cb_v = positions[a3]._value
-            ag1_v = positions[a4]._value            
+        # Disable side chain checking because we are not packing side chains
+        if not flip: return True
+        return positions
 
-            dihe = dihedral(hb_v, ca_v, cb_v, ag1_v)
-            if self.seq[i].isupper():
-                #it's a T or an I
-                if dihe > 0:
-                    if flip:
-                        # need to flip
-                        
-#                         cb_hb_vec = hb_v - cb_v
-#                         hb_newpos = hb_v - (2*cb_hb_vec) # check this with simple 2D example
-                        
-                    
-                        newpos = unit.quantity.Quantity(vec3.Vec3(*[x for x in mobile_vec[0]]), unit=unit.nanometer)
-                        outpos[a1] = newpos
-
-                        t = ampal.geometry.find_transformations(cb_v, mobile_vec[0], cb_v, hb_v)
-                        q = Quaternion.angle_and_axis(angle=t[1], axis=t[2])
-                        
-                        for j in range(len(mobile_ind)):
-                            rotated_vec = q.rotate_vector(v=mobile_vec[j], point=t[3])
-                            rotated_vec += t[0]
-                            newpos = unit.quantity.Quantity(vec3.Vec3(*[x for x in rotated_vec]), unit=unit.nanometer)
-                #             sc_newpos[j] = newpos
-                            outpos[mobile_ind[j]] = newpos
-
-                
-                    else:
-                        # just count wrong chir
-                        wrong_chir.append(1)
-                        
-            if self.seq[i].islower():
-                #it's a t or an i
-                if dihe < 0:
-                    if flip:
-                        # need to flip
-
-#                         cb_hb_vec = hb_v - cb_v
-#                         hb_newpos = hb_v - (2*cb_hb_vec) # check this with simple 2D example
-#                         newpos = unit.quantity.Quantity(vec3.Vec3(*[x for x in hb_newpos]), unit=unit.nanometer)
-#                         positions[a1] = newpos
-                        
-                        newpos = unit.quantity.Quantity(vec3.Vec3(*[x for x in mobile_vec[0]]), unit=unit.nanometer)
-                        outpos[a1] = newpos
-
-                        t = ampal.geometry.find_transformations(cb_v, mobile_vec[0], cb_v, hb_v)
-                        q = Quaternion.angle_and_axis(angle=t[1], axis=t[2])
-                        
-                        for j in range(len(mobile_ind)):
-                            rotated_vec = q.rotate_vector(v=mobile_vec[j], point=t[3])
-                            rotated_vec += t[0]
-                            newpos = unit.quantity.Quantity(vec3.Vec3(*[x for x in rotated_vec]), unit=unit.nanometer)
-                #             sc_newpos[j] = newpos
-                            outpos[mobile_ind[j]] = newpos
-                        
-                    else:
-                        # just count wrong chir
-                        wrong_chir.append(1)
-        if flip:
-            return(outpos)
-        if not flip:
-            if any(x == 1 for x in wrong_chir):
-                return(False)
-            else:
-                return(True)
-                
-    
-        
     def filter_by_rama_rmsd(self, population, rmsd_val):
         #takes a population and keeps best, and only subsequent models if they pass rama cutoff test
         ramalist = []
@@ -1286,7 +1191,7 @@ class CyclicPeptideOptimiser:
                     
                     flipnow = 0
                     if any(x in 'TtIi' for x in self.seq):
-                        current_positions = self.sc_chir_check_flip(current_positions, flip=True)
+                        pass # current_positions = self.sc_chir_check_flip(current_positions, flip=True) # Disabled since side chains are not packed
                         
                     for k in range(len(self.seq)):
                             #test chirality
