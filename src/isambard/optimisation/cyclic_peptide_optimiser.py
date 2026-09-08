@@ -1340,10 +1340,14 @@ class CyclicPeptideOptimiser:
             
             if survival_rate < target_survival:
                 # Too strict: fewer models survived than we want to keep in the HoF
-                self.rama_rmsd = max(0.1, self.rama_rmsd - 1)
+                ratio = target_survival / max(0.001, survival_rate)
+                step = min(10.0, max(1.0, ratio))
+                self.rama_rmsd = max(0.1, self.rama_rmsd - step)
             elif survival_rate > target_survival * 3:
                 # Too lax: far more models survived than we need
-                self.rama_rmsd += 1
+                ratio = survival_rate / (target_survival * 3)
+                step = min(10.0, max(1.0, ratio * 2))
+                self.rama_rmsd += step
             
             self.halloffame = self.halloffame[:hof_len]
             # cut to length anyways
