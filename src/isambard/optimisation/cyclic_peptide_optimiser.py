@@ -1174,26 +1174,19 @@ class CyclicPeptideOptimiser:
             ramalist.append(rama)
 #         print(f'ramalist is {ramalist}')
 
-        rmsd_array = numpy.zeros((len(population), len(population)))
-        for j in range(len(population)):
-            for k in range(0, j):
-                rmsd = calc_rmsd2(ramalist[j], ramalist[k])
-                rmsd_array[k][j] = rmsd
-#         print(f'rmsd_array is {rmsd_array}')
-#         rmsd_array += rmsd_array.transpose()
-
-#         tmp_current = [population[0]] # think this is important to not lose the top scoring one
         tmp_current = []
+        accepted_indices = []
         for j in range(len(population)):
-#             line = [x for x in rmsd_array[:,j] if x != 0.0]
-            line = rmsd_array[:j,j]
-#             print(f"line is {line}")
-#             if len(line) != 0: #don't need this?
-            if all(l > rmsd_val for l in line):
+            is_distinct = True
+            for k in accepted_indices:
+                rmsd = calc_rmsd2(ramalist[j], ramalist[k])
+                if rmsd <= rmsd_val:
+                    is_distinct = False
+                    break
+            if is_distinct:
                 tmp_current.append(population[j])
-#                 else:
-#                     pass
-        return(tmp_current)
+                accepted_indices.append(j)
+        return tmp_current
 
     def optimise(self, n_iter, wp_len=20, samplesize=200, hof_len=5, rama_rmsd=15, n_permute=3, n_flip=5, tol=5, max_iter=100, plot=True):
         #run the optimisation
@@ -1337,11 +1330,11 @@ class CyclicPeptideOptimiser:
             self.halloffame += current_models
             self.halloffame.sort(key = lambda x: x[0])
             self.halloffame = self.filter_by_rama_rmsd(self.halloffame, self.rama_rmsd)
-            if len(self.halloffame) < 7:
-                # too short, too aggressive fi3tering, reduce rama
+            if len(self.halloffame) < hof_len:
+                # too short, too aggressive filtering, reduce rama
                 # presumably can use this to measure something about the energy landscape?
-                self.rama_rmsd -= 1
-            elif len(self.halloffame) > 10:
+                self.rama_rmsd = max(0.1, self.rama_rmsd - 1)
+            elif len(self.halloffame) > hof_len * 2:
                 # too long, too lax filtering, increase rama
                 self.rama_rmsd += 1
             
@@ -1363,39 +1356,74 @@ class CyclicPeptideOptimiser:
             plt.plot(range(n_iter+1), self.energies)
             plt.title('optimisation curve')
             plt.show()
+
+    def plot_halloffame_ramachandran(self, cols=3):
+        import math
+        import matplotlib.pyplot as plt
+        import numpy
+        
+        # 1. Extract Dihedrals (using the existing logic)
+        ramalist = []
+        for pos in self.halloffame:
+            n_pos = [pos[1][j]._value for j in self.n_indices]
+            ca_pos = [pos[1][j]._value for j in self.ca_indices]
+            c_pos = [pos[1][j]._value for j in self.c_indices]
+            temp_ramas = []
+            for k in range(len(self.n_indices)):
+                phi = dihedral(c_pos[k-2], n_pos[k-1], ca_pos[k-1], c_pos[k-1])
+                psi = dihedral(n_pos[k-1], ca_pos[k-1], c_pos[k-1], n_pos[k])
+                temp_ramas.append((phi, psi))
+            rama = temp_ramas[1:]+[temp_ramas[0]]
+            ramalist.append(rama)
+
+        # 2. Setup the Grid
+        n_plots = len(ramalist)
+        if n_plots == 0:
+            print("No models in Hall of Fame to plot.")
+            return
+
+        rows = math.ceil(n_plots / cols)
+        fig, axes = plt.subplots(rows, cols, figsize=(cols*4, rows*4))
+        
+        # Ensure axes is a flat array for easy indexing even if it's 1x1 or 1xN
+        if n_plots == 1 and rows == 1 and cols == 1: 
+            axes = [axes]
+        elif rows == 1 or cols == 1:
+            axes = axes.flatten()
+        else: 
+            axes = axes.flatten()
+
+        colours = plt.cm.rainbow([x for x in numpy.linspace(0, 1, len(self.seq))])
+
+        # 3. Plot Each HoF Entry
+        for j in range(n_plots):
+            ax = axes[j]
+            ax.set_aspect('equal')
+            ax.set_xlim([-180, 180])
+            ax.set_ylim([-180, 180])
             
-            ramalist = []
-            for pos in self.halloffame:
-                n_pos = [pos[1][j]._value for j in self.n_indices]
-                ca_pos = [pos[1][j]._value for j in self.ca_indices]
-                c_pos = [pos[1][j]._value for j in self.c_indices]
-                temp_ramas = []
-                for k in range(len(self.n_indices)):
-                    phi = dihedral(c_pos[k-2], n_pos[k-1], ca_pos[k-1], c_pos[k-1])
-                    psi = dihedral(n_pos[k-1], ca_pos[k-1], c_pos[k-1], n_pos[k])
-                    temp_ramas.append((phi, psi))
+            # Add gridlines for standard Ramachandran quadrants
+            ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
+            ax.axvline(0, color='gray', linestyle='--', alpha=0.5)
 
-                rama = temp_ramas[1:]+[temp_ramas[0]]
-                ramalist.append(rama)
+            xser = [ramalist[j][x][0] for x in range(len(self.seq))]
+            yser = [ramalist[j][y][1] for y in range(len(self.seq))]
 
-            colours = plt.cm.rainbow([x for x in numpy.linspace(0, 1, len(self.seq))])
-            for j in range(len(ramalist)):
+            ax.set_xlabel('phi', size=12)
+            ax.set_ylabel('psi', size=12)
+            ax.scatter(xser, yser, c=colours, s=60, edgecolor='black', zorder=5)
+            
+            # Truncate score for cleaner title
+            ax.set_title(f'Rank {j+1} (Score: {self.halloffame[j][0]:.1f})', size=12)
 
-                fig, ax = plt.subplots(figsize=(4, 4))
-                ax.set_xlim([-180, 180])
-                ax.set_ylim([-180, 180])
+            for k in range(len(self.seq)):
+                ax.annotate(f"{self.seq[k]}{k}", (xser[k]+5, yser[k]+5), size=9, zorder=10)
 
+        # 4. Hide unused subplots (if n_plots isn't a multiple of cols)
+        for j in range(n_plots, len(axes)):
+            fig.delaxes(axes[j])
 
-                xser = [ramalist[j][x][0] for x in range(len(self.seq))]
-                yser = [ramalist[j][y][1] for y in range(len(self.seq))]
-
-                ax.set_xlabel('phi', size=16)
-                ax.set_ylabel('psi', size=16)
-                plt.scatter(xser, yser, c=colours, s=100, label=[_ for _ in range(len(self.seq))])
-                plt.title(f'rama plot for hof entry {j}, score {self.halloffame[j][0]}')
-
-                for k in range(len(self.seq)):
-                    plt.annotate(f"{self.seq[k]}_{k}", [xser[k], yser[k]], size=20)
-                plt.show()
+        plt.tight_layout()
+        plt.show()
 
 

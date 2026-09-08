@@ -1,0 +1,153 @@
+import json
+
+notebook = {
+    "cells": [
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "# Testing the Fast OpenMM Cyclic Peptide Optimiser\n",
+                "This notebook tests the updated `CyclicPeptideOptimiser` which runs purely in OpenMM to avoid expensive side-chain packing and PDB roundtripping during the conformational search."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "import sys\n",
+                "import time\n",
+                "from isambard.optimisation.cyclic_peptide_optimiser import CyclicPeptideOptimiser\n",
+                "from openmm.app import PDBFile\n",
+                "import matplotlib.pyplot as plt\n",
+                "%matplotlib inline"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Targets identified from the original notebook\n",
+                "macs = {\n",
+                "    7.1: 'TkNDTnp',\n",
+                "    7.2: 'hPdqseP',\n",
+                "    7.3: 'QDPpKtd',\n",
+                "    8.1: 'DDPTprQq',\n",
+                "    8.2: 'rQpqRePQ',\n",
+                "    9.1: 'pPYhPKDLq',\n",
+                "    10.1: 'PEAARvpRlt',\n",
+                "    10.2: 'EvDPehpNap'\n",
+                "}\n",
+                "\n",
+                "pdbs = {\n",
+                "    7.1: '6be9',\n",
+                "    7.2: '6bew',\n",
+                "    7.3: '6bf5',\n",
+                "    8.1: '6be7',\n",
+                "    8.2: '6ben',\n",
+                "    9.1: '6beo',\n",
+                "    10.1: '6beq',\n",
+                "    10.2: '6ber'\n",
+                "}"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Test a couple of targets (e.g., the heptapeptides 7.1 and 7.2)\n",
+                "# You can change this list to test all of them: list(macs.keys())\n",
+                "test_keys = [7.1, 7.2]\n",
+                "results = {}\n",
+                "\n",
+                "for k in test_keys:\n",
+                "    seq = macs[k]\n",
+                "    pdb_id = pdbs[k]\n",
+                "    print(f\"\\n{'='*50}\\nOptimising {pdb_id} (Sequence: {seq})\\n{'='*50}\")\n",
+                "    \n",
+                "    t1 = time.time()\n",
+                "    \n",
+                "    # 1. Initialize the optimiser\n",
+                "    opt = CyclicPeptideOptimiser(seq)\n",
+                "    \n",
+                "    # 2. Build start mac using ISAMBARD's rand_mac\n",
+                "    print(\"Building starting macrocycle (this may take a moment for rand_mac to close the loop)...\")\n",
+                "    opt.build_start_mac()\n",
+                "    \n",
+                "    # 3. Setup OpenMM\n",
+                "    print(\"Setting up OpenMM context...\")\n",
+                "    opt.amber_setup()\n",
+                "    \n",
+                "    # 4. Run the fast optimisation loop\n",
+                "    # Using a small number of iterations (e.g. 50) for testing speed\n",
+                "    n_iter = 50\n",
+                "    samplesize = 40\n",
+                "    print(f\"Running optimisation for {n_iter} iterations...\")\n",
+                "    opt.optimise(\n",
+                "        n_iter=n_iter,\n",
+                "        samplesize=samplesize,\n",
+                "        wp_len=15, \n",
+                "        hof_len=3, \n",
+                "        rama_rmsd=5, \n",
+                "        n_permute=5, \n",
+                "        plot=False\n",
+                "    )\n",
+                "    \n",
+                "    t2 = time.time()\n",
+                "    print(f\"\\nFinished {pdb_id} in {t2 - t1:.2f} seconds.\")\n",
+                "    print(f\"Initial energy: {opt.energies[0]:.2f}\")\n",
+                "    print(f\"Best energy achieved: {opt.energies[-1]:.2f}\")\n",
+                "    \n",
+                "    results[k] = opt\n",
+                "    \n",
+                "    # 5. Plot the energy trajectory\n",
+                "    plt.figure(figsize=(8, 4))\n",
+                "    plt.plot(range(len(opt.energies)), opt.energies, marker='o', markersize=3)\n",
+                "    plt.title(f'Energy Trajectory for {pdb_id}')\n",
+                "    plt.xlabel('Iteration')\n",
+                "    plt.ylabel('Energy (kJ/mol)')\n",
+                "    plt.grid(True)\n",
+                "    plt.show()\n",
+                "    \n",
+                "    # 6. Plot the Ramachandran grid for the Hall of Fame\n",
+                "    print(\"Plotting Ramachandran coordinates for Hall of Fame...\")\n",
+                "    opt.plot_halloffame_ramachandran(cols=3)\n",
+                "    \n",
+                "    # 7. Save the best structure\n",
+                "    output_pdb = f'{pdb_id}_best.pdb'\n",
+                "    with open(output_pdb, 'w') as f:\n",
+                "        PDBFile.writeFile(opt.model.topology, opt.halloffame[0][1], file=f)\n",
+                "    print(f\"Saved best structure to {output_pdb}\")\n"
+            ]
+        }
+    ],
+    "metadata": {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3"
+        },
+        "language_info": {
+            "codemirror_mode": {
+                "name": "ipython",
+                "version": 3
+            },
+            "file_extension": ".py",
+            "mimetype": "text/x-python",
+            "name": "python",
+            "nbconvert_exporter": "python",
+            "pygments_lexer": "ipython3",
+            "version": "3.8.0"
+        }
+    },
+    "nbformat": 4,
+    "nbformat_minor": 4
+}
+
+with open("test_fast_openmm_optimiser.ipynb", "w") as f:
+    json.dump(notebook, f, indent=1)
