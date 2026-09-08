@@ -1327,15 +1327,22 @@ class CyclicPeptideOptimiser:
             #combine all models and sort by score
             current_models.sort(key = lambda x: x[0])
             
+            # Record length before filtering to calculate acceptance rate
+            pre_filter_len = len(self.halloffame) + len(current_models)
+            
             self.halloffame += current_models
             self.halloffame.sort(key = lambda x: x[0])
             self.halloffame = self.filter_by_rama_rmsd(self.halloffame, self.rama_rmsd)
-            if len(self.halloffame) < hof_len:
-                # too short, too aggressive filtering, reduce rama
-                # presumably can use this to measure something about the energy landscape?
+            
+            # Calculate what percentage of models survived the diversity filter
+            survival_rate = len(self.halloffame) / pre_filter_len if pre_filter_len > 0 else 1.0
+            target_survival = hof_len / pre_filter_len if pre_filter_len > 0 else 0.05
+            
+            if survival_rate < target_survival:
+                # Too strict: fewer models survived than we want to keep in the HoF
                 self.rama_rmsd = max(0.1, self.rama_rmsd - 1)
-            elif len(self.halloffame) > hof_len * 2:
-                # too long, too lax filtering, increase rama
+            elif survival_rate > target_survival * 3:
+                # Too lax: far more models survived than we need
                 self.rama_rmsd += 1
             
             self.halloffame = self.halloffame[:hof_len]
