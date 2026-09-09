@@ -1133,10 +1133,10 @@ class CyclicPeptideOptimiser:
                 is_d = self.seq[i].islower()
                 
                 if res[i].name == 'THR':
-                    if (not is_d and dihe > 0) or (is_d and dihe < 0):
+                    if (not is_d and dihe < 0) or (is_d and dihe > 0):
                         wrong_chir.append(i)
                 elif res[i].name == 'ILE':
-                    if (not is_d and dihe < 0) or (is_d and dihe > 0):
+                    if (not is_d and dihe > 0) or (is_d and dihe < 0):
                         wrong_chir.append(i)
             except IndexError:
                 continue
