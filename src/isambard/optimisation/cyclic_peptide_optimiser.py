@@ -1130,10 +1130,14 @@ class CyclicPeptideOptimiser:
                 cg_v = positions[cg_id]._value
                 dihe = dihedral(a1_v, a2_v, a3_v, cg_v)
                 
-                if res[i].name == 'THR' and dihe > 0:
-                    wrong_chir.append(i)
-                elif res[i].name == 'ILE' and dihe < 0:
-                    wrong_chir.append(i)
+                is_d = self.seq[i].islower()
+                
+                if res[i].name == 'THR':
+                    if (not is_d and dihe > 0) or (is_d and dihe < 0):
+                        wrong_chir.append(i)
+                elif res[i].name == 'ILE':
+                    if (not is_d and dihe < 0) or (is_d and dihe > 0):
+                        wrong_chir.append(i)
             except IndexError:
                 continue
                 
@@ -1142,16 +1146,29 @@ class CyclicPeptideOptimiser:
             
         for i in wrong_chir:
             try:
-                a1 = [a.index for a in res[i].atoms() if a.name == 'HB'][0]
-                cg_candidates = [a.index for a in res[i].atoms() if a.name in ('CG1', 'CG2')]
-                if not cg_candidates: continue
-                cg_id = cg_candidates[0]
+                ca_id = [a.index for a in res[i].atoms() if a.name == 'CA'][0]
+                cb_id = [a.index for a in res[i].atoms() if a.name in ('CB', 'HA3')][0]
+                n_id = [a.index for a in res[i].atoms() if a.name == 'N'][0]
                 
-                cg_v = positions[cg_id]._value
-                a1_v = positions[a1]._value
+                ca_v = numpy.array(positions[ca_id]._value)
+                cb_v = numpy.array(positions[cb_id]._value)
+                n_v = numpy.array(positions[n_id]._value)
                 
-                positions[cg_id] = vec3.Vec3(*a1_v) * unit.nanometers
-                positions[a1] = vec3.Vec3(*cg_v) * unit.nanometers
+                # Create a plane containing CA, CB, and N
+                ca_cb = cb_v - ca_v
+                ca_n = n_v - ca_v
+                plane_normal = numpy.cross(ca_cb, ca_n)
+                plane_normal = plane_normal / numpy.linalg.norm(plane_normal)
+                
+                # Mirror all atoms beyond CB
+                sc_atoms = [a.index for a in res[i].atoms() if a.name not in ('N', 'H', 'CA', 'C', 'O', 'HA', 'HA2', 'CB')]
+                
+                for a_idx in sc_atoms:
+                    atom_v = numpy.array(positions[a_idx]._value)
+                    v = atom_v - cb_v
+                    dist = numpy.dot(v, plane_normal)
+                    mirrored = atom_v - 2 * dist * plane_normal
+                    positions[a_idx] = unit.quantity.Quantity(vec3.Vec3(*mirrored), unit=unit.nanometer)
             except IndexError:
                 continue
             
