@@ -1448,3 +1448,12 @@ class CyclicPeptideOptimiser:
         plt.show()
 
 
+
+    def export_halloffame_pdb(self, filename):
+        """Exports the entire hall of fame as a single multi-model PDB file."""
+        from openmm.app import PDBFile
+        with open(filename, 'w') as f:
+            PDBFile.writeHeader(self.model.topology, file=f)
+            for i, (energy, positions) in enumerate(self.halloffame):
+                PDBFile.writeModel(self.model.topology, positions, file=f, modelIndex=i+1)
+            PDBFile.writeFooter(self.model.topology, file=f)
