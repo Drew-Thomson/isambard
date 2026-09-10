@@ -1,4 +1,3 @@
-from isambard.modelling.daspr import pack_side_chains_daspr
 import sys
 import copy
 import random
@@ -707,10 +706,7 @@ class CyclicPeptideOptimiser:
 
     def build_start_mac(self):
         # We use CyclicPeptide to generate a starting backbone macrocycle.
-        start_mac = CyclicPeptide(self.seq, auto_build=True)
-        # Pack side chains using dASPR for the initial setup
-        self.start_mac = pack_side_chains_daspr(start_mac, [self.seq])
-        self.model = self.start_mac
+        self.start_mac = CyclicPeptide(self.seq, auto_build=True)
 
     def amber_setup(self):
         self.good = 0
@@ -718,30 +714,24 @@ class CyclicPeptideOptimiser:
         self.flip = 0
         self.cis_bad = 0
         
-        res_map = {
-            'DSG': 'ASN', 'DAS': 'ASP', 'DGL': 'GLU', 'DAL': 'ALA', 'DCY': 'CYS',
-            'DPN': 'PHE', 'DHI': 'HIS', 'DIL': 'ILE', 'DLY': 'LYS', 'DLE': 'LEU',
-            'MED': 'MET', 'DPR': 'PRO', 'DGN': 'GLN', 'DAR': 'ARG', 'DSN': 'SER',
-            'DTH': 'THR', 'DVA': 'VAL', 'DTR': 'TRP', 'DTY': 'TYR'
-        }
+        from pdbfixer import PDBFixer
+        from ampal.amino_acids import standard_amino_acids
+        import os
         
-        pdb_lines = []
-        for line in self.start_mac.pdb.splitlines():
-            if line.startswith('TER'):
-                continue
-            if line.startswith('ATOM') or line.startswith('HETATM'):
-                res_name = line[17:20].strip()
-                if res_name in res_map:
-                    new_name = res_map[res_name].ljust(3)
-                    line = line[:17] + new_name + line[20:]
-            pdb_lines.append(line + '\n')
+        with tempfile.NamedTemporaryFile(suffix='.pdb', delete=False) as f:
+            f.write(self.start_mac.pdb.encode())
+            f_name = f.name
             
-        f = tempfile.NamedTemporaryFile(suffix='.pdb')
-        f.write(''.join(pdb_lines).encode())
-        f.seek(0)
-        cyc1 = app.PDBFile(f.name)
+        fixer = PDBFixer(filename=f_name)
+        os.remove(f_name)
         
-        self.model = app.Modeller(cyc1.topology, cyc1.positions)
+        mutations = [f"GLY-{i+1}-{standard_amino_acids[aa.upper()]}" for i, aa in enumerate(self.seq)]
+        fixer.applyMutations(mutations, "A")
+        fixer.findMissingResidues()
+        fixer.findMissingAtoms()
+        fixer.addMissingAtoms()
+        
+        self.model = app.Modeller(fixer.topology, fixer.positions)
 
         residues = [r for r in self.model.topology.residues()]
         # assumes no OH at end. Would need to target and remove atoms for that if present
@@ -752,7 +742,7 @@ class CyclicPeptideOptimiser:
         excess_atoms = [a for a in [r for r in self.model.topology.residues()][0].atoms() if a.name == 'H2' or a.name == 'H3']
         self.model.delete(excess_atoms)
         
-        forcefield = app.ForceField('amber99sbnmr.xml', 'implicit/obc2.xml')
+        forcefield = app.ForceField('amber14-all.xml', 'implicit/obc1.xml')
         
         self.system = forcefield.createSystem(self.model.topology,
                                               nonbondedMethod=app.NoCutoff,
@@ -787,7 +777,10 @@ class CyclicPeptideOptimiser:
         integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picoseconds, 2.0*unit.femtoseconds)
         integrator.setConstraintTolerance(0.00001)
 
-        platform = mm.Platform.getPlatformByName('CPU')
+        try:
+            platform = mm.Platform.getPlatformByName('CUDA')
+        except mm.OpenMMException:
+            platform = mm.Platform.getPlatformByName('CPU')
         properties = {}
         
         self.simulation = app.Simulation(self.model.topology, self.system, integrator, platform, properties)
