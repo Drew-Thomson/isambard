@@ -739,7 +739,7 @@ class CyclicPeptideOptimiser:
                                     [at for at in residues[-1].atoms() if at.name == 'C'][0])
         self.model.addHydrogens(pH = 5.0)
         #need to re-generate residues to get fresh atoms
-        excess_atoms = [a for a in [r for r in self.model.topology.residues()][0].atoms() if a.name == 'H2' or a.name == 'H3']
+        excess_atoms = [a for r in self.model.topology.residues() for a in r.atoms() if a.name in ('H2', 'H3', 'OXT')]
         self.model.delete(excess_atoms)
         
         forcefield = app.ForceField('amber14-all.xml', 'implicit/obc1.xml')
